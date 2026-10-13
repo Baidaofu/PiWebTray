@@ -41,13 +41,15 @@ npm install -g @agegr/pi-web@latest
 
 ## 使用
 
-1. 下载 `PiWebTray.exe`（或自行编译），放到任意目录，例如 `C:\Tools\PiWebTray\`
+**单文件，零附带**：只要 `PiWebTray.exe` 一个文件，丢到任何目录双击即可（不需要 ini、不需要 ico、不需要安装）。
+
+1. 下载 Releases 里的 `PiWebTray.exe`（或自行编译），放到任意目录，例如 `C:\Tools\PiWebTray\`
 2. 双击运行，右下角出现托盘图标
 3. 需要开机自启：右键图标勾选「开机自启动」
 
 ## 配置
 
-可选 `pi-web-tray.ini`（放在 exe 同目录，修改后点「重启服务」生效）：
+**默认无需任何配置文件**（端口 30141、绑定 127.0.0.1）。需要改端口时，用托盘菜单「端口」切换，会自动在 exe 同目录生成 `pi-web-tray.ini`；也可以手动新建/编辑该文件（修改后点「重启服务」生效）：
 
 ```ini
 port=30141          # 服务端口
