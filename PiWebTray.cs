@@ -12,6 +12,16 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
 
+// 单文件 exe：不需要任何旁边的 ini / ico，配置可选
+[assembly: AssemblyTitle("PiWebTray")]
+[assembly: AssemblyProduct("PiWebTray")]
+[assembly: AssemblyDescription("Windows tray launcher for pi-web: silent start, update / restart / exit from the notification area")]
+[assembly: AssemblyCompany("")]
+[assembly: AssemblyVersion("1.0.0.0")]
+[assembly: AssemblyFileVersion("1.0.0.0")]
+[assembly: AssemblyInformationalVersion("1.0.0")]
+[assembly: AssemblyCopyright("MIT License")]
+
 #pragma warning disable 649  // 托盘菜单项字段：仅赋值不使用，抑制 CS0649
 
 // PiWebTray - 极小托盘程序：静默启动 pi-web，右键菜单更新/重启/退出。
