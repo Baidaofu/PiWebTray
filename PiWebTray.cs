@@ -415,15 +415,25 @@ static class PiWebTray
         SetMenuState("启动中...", false);
         Write("[" + DateTime.Now.ToString("HH:mm:ss") + "] starting pi-web ...");
 
-        // 端口已被占用：视为外部已启动，仅监控不接管
+        // 端口已被占用：区分“已被 pi-web 占用”(静默接管监控) 与“被其它程序占用”(告警)
         if (PortOpen())
         {
-            Write("port " + Port + " already in use, adopt existing instance");
-            Busy = false;
-            External = true;
-            SetMenuState("运行中(外部)", true);
-            Ni.Text = AppName + " - 运行中(外部) :" + Port;
-            Balloon(AppName, "检测到端口 " + Port + " 已被占用，未重复启动", ToolTipIcon.Info);
+            if (PiWebRunningOnPort())
+            {
+                Write("port " + Port + " already served by pi-web, adopt silently");
+                Busy = false;
+                External = true;
+                SetMenuState("运行中(外部)", true);
+                Ni.Text = AppName + " - 运行中(外部) :" + Port;
+            }
+            else
+            {
+                Write("port " + Port + " occupied by another program");
+                Busy = false;
+                SetMenuState("端口被占用", false);
+                Ni.Text = AppName + " - 端口 " + Port + " 被占用";
+                Balloon(AppName, "端口 " + Port + " 被其它程序占用，pi-web 未启动。右键→端口 可换一个端口", ToolTipIcon.Warning);
+            }
             return;
         }
         try
@@ -559,6 +569,19 @@ static class PiWebTray
         }
     }
 
+    static bool PiWebRunningOnPort()
+    {
+        // 借助 pi-web 自带的 status 子命令判断，避免误报
+        try
+        {
+            string outp = RunCapture("cmd.exe", "/c call \"" + PiWebCmd() + "\" status", 20);
+            if (outp == null) return true;   // 拿不到结果时保守处理，不打扰用户
+            return outp.IndexOf(":" + Port + " ", StringComparison.OrdinalIgnoreCase) >= 0
+                || outp.IndexOf(":" + Port + "\r", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+        catch { return true; }
+    }
+
     static int RunHidden(string file, string args, int timeoutSec)
     {
         try
@@ -581,6 +604,29 @@ static class PiWebTray
             Write("exec error " + file + ": " + e.Message);
             return -2;
         }
+    }
+
+    static string RunCapture(string file, string args, int timeoutSec)
+    {
+        try
+        {
+            ProcessStartInfo psi = new ProcessStartInfo(file, args);
+            psi.UseShellExecute = false;
+            psi.CreateNoWindow = true;
+            psi.WindowStyle = ProcessWindowStyle.Hidden;
+            psi.RedirectStandardOutput = true;
+            psi.RedirectStandardError = true;
+            psi.StandardOutputEncoding = Encoding.UTF8;
+            using (Process p = Process.Start(psi))
+            {
+                string so = p.StandardOutput.ReadToEnd();
+                p.StandardError.ReadToEnd();
+                p.WaitForExit(timeoutSec * 1000);
+                if (!p.HasExited) { try { p.Kill(); } catch { } }
+                return so;
+            }
+        }
+        catch { return null; }
     }
 
     // ---------------- 杂项 ----------------
