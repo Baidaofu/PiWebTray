@@ -17,7 +17,7 @@ Windows 托盘启动器：静默启动 [pi-web](https://github.com/agegr/pi-web)
 | 左键单击图标 | 用默认浏览器打开 `http://127.0.0.1:30141` |
 | 状态 | `运行中 / 启动中 / 运行中(外部) / 已停止 / 更新失败` |
 | 打开网页 / 复制地址 | 打开或复制访问地址 |
-| **更新 pi-web** | 执行 `pi-web update`（等价 `npm install -g @agegr/pi-web@latest`），完成后自动重启服务 |
+| **更新 pi-web** | 弹窗确认后停止运行中的实例（外部实例也会先停），执行 `pi-web update`（等价 `npm install -g @agegr/pi-web@latest`），完成后自动重启；失败时气泡里直接给出原因 |
 | 重启服务 / 停止服务 | 先 `pi-web stop --port` 优雅关闭，必要时 `taskkill /T /F` 兜底 |
 | 端口 | 快速切换 30141 / 30180 / 30100 / 8000，或打开配置文件自定义；切换后自动重启 |
 | 打开日志目录 | `%APPDATA%\PiWebTray\` |

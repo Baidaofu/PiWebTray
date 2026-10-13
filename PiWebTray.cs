@@ -532,40 +532,108 @@ static class PiWebTray
 
     static void UpdateService()
     {
-        Busy = true;
-        SetMenuState("更新中...", Proc != null);
-        Balloon(AppName, "正在执行 pi-web update (" + Package + ")", ToolTipIcon.Info);
-        Write("[" + DateTime.Now.ToString("HH:mm:ss") + "] update start");
+        if (Busy) return;
 
-        bool external = External;
-        if (!external) StopService();
-        else Write("external instance, only update package");
-
-        int code = RunHidden("cmd.exe",
-            "/c call \"" + PiWebCmd() + "\" update >> \"" + ServerLog() + "\" 2>&1",
-            900);
-        if (code == 0)
+        // pi-web update 要求服务器处于停止状态；外部实例需要用户确认
+        if (External || (Proc == null && PortOpen() && PiWebRunningOnPort()))
         {
-            Write("update ok");
-            if (external)
+            DialogResult r = MessageBox.Show(
+                "pi-web 正在运行（端口 " + Port + "，外部启动）。\r\n\r\n" +
+                "更新必须先停止该实例，更新完成后由托盘重新拉起。\r\n是否继续？",
+                AppName + " - 更新 pi-web", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+            if (r != DialogResult.Yes)
             {
-                Busy = false;
-                SetMenuState("运行中(外部)", true);
-                Balloon(AppName, "更新完成，请手动重启外部启动的 pi-web 生效", ToolTipIcon.Info);
+                Write("[" + DateTime.Now.ToString("HH:mm:ss") + "] update cancelled by user");
+                return;
             }
-            else
+            StopExternal();
+            if (PortOpen())
             {
-                Thread.Sleep(1000);
-                StartService();
-                Balloon(AppName, "更新完成，服务已重启", ToolTipIcon.Info);
+                Write("[" + DateTime.Now.ToString("HH:mm:ss") + "] update aborted: port " + Port + " still busy");
+                SetMenuState("端口仍被占用", true);
+                Balloon(AppName, "端口 " + Port + " 未释放，已取消更新。", ToolTipIcon.Warning);
+                return;
             }
         }
         else
         {
+            StopService();
+        }
+
+        Busy = true;
+        External = false;
+        SetMenuState("更新中...", false);
+        Balloon(AppName, "正在执行 pi-web update", ToolTipIcon.Info);
+        Write("[" + DateTime.Now.ToString("HH:mm:ss") + "] update start");
+
+        // 抓取输出，便于把真实原因写进日志并提示用户
+        string outp = RunCapture("cmd.exe", "/c call \"" + PiWebCmd() + "\" update", 900);
+        if (outp != null && outp.Trim().Length > 0)
+        {
+            Write("---- pi-web update output ----");
+            foreach (string l in outp.Split(new string[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries))
+                Write("  " + l.TrimEnd());
+        }
+        bool ok = LooksUpdated(outp);
+
+        if (ok)
+        {
+            Write("[" + DateTime.Now.ToString("HH:mm:ss") + "] update ok");
+            Thread.Sleep(1000);
+            StartService();
+            Balloon(AppName, "更新完成，服务已重启", ToolTipIcon.Info);
+        }
+        else
+        {
             Busy = false;
-            Write("update failed, exit=" + code);
-            SetMenuState("更新失败", External);
-            Balloon(AppName, "更新失败 (exit " + code + ")，详见日志", ToolTipIcon.Error);
+            Write("[" + DateTime.Now.ToString("HH:mm:ss") + "] update FAILED");
+            SetMenuState("更新失败", PortOpen());
+            Balloon(AppName, "更新失败：" + FailureHint(outp), ToolTipIcon.Error);
+        }
+    }
+
+    // pi-web update 无独立退出码语义：成功时不输出错误信息
+    static bool LooksUpdated(string outp)
+    {
+        if (outp == null) return false;
+        string t = outp.ToLowerInvariant();
+        string[] bad = { "run `pi-web stop`", "npm err", "error", "failed", "eaddrinuse", "not found" };
+        foreach (string b in bad)
+            if (t.Contains(b)) return false;
+        return true;
+    }
+
+    static string FailureHint(string outp)
+    {
+        if (outp == null) return "未获得输出，详见日志";
+        foreach (string l in outp.Split(new string[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            string s = l.Trim();
+            if (s.Length == 0) continue;
+            if (s.ToLowerInvariant().Contains("npm err") || s.ToLowerInvariant().Contains("error"))
+                return s.Length > 60 ? s.Substring(0, 60) + "…" : s;
+        }
+        return "详见 %APPDATA%/PiWebTray/tray.log";
+    }
+
+    // 停止不是本托盘拉起的 pi-web（用 pi-web stop，不杀进程树）
+    static void StopExternal()
+    {
+        Write("[" + DateTime.Now.ToString("HH:mm:ss") + "] stopping external pi-web on port " + Port);
+        RunCapture("cmd.exe", "/c call \"" + PiWebCmd() + "\" stop --port " + Port, 60);
+        for (int i = 0; i < 30 && PortOpen(); i++) Thread.Sleep(500);
+        if (PortOpen())
+        {
+            // pi-web stop 没搞定时按端口找 PID 兜底
+            try
+            {
+                string ns = RunCapture("cmd.exe",
+                    "/c for /f \"tokens=5\" %a in ('netstat -ano ^| findstr 127.0.0.1:" + Port + " ^| findstr LISTENING') do taskkill /PID %a /T /F",
+                    30);
+                if (ns != null) Write(ns.Trim());
+            }
+            catch { }
+            for (int i = 0; i < 20 && PortOpen(); i++) Thread.Sleep(500);
         }
     }
 
