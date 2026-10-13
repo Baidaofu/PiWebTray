@@ -1,0 +1,82 @@
+# PiWebTray
+
+Windows 托盘启动器：静默启动 [pi-web](https://github.com/agegr/pi-web)，只在右下角小图标显示，右键即可更新 / 重启 / 退出。
+
+**23 KB 单文件 exe，零运行时依赖**（纯 WinForms + GDI+，用 Windows 自带的 PowerShell 5.1 `csc` 编译，不需要装 .NET SDK / Node / Python）。
+
+## 效果
+
+- 双击 `PiWebTray.exe`：无控制台窗口、无黑框，右下角出现紫色 "Pi" 托盘图标
+- 自动以 `--no-open` 拉起 `pi-web`，**不会自动弹浏览器**（左键点图标或右键菜单才打开）
+- 服务日志写在 `%APPDATA%\PiWebTray\pi-web.log`，托盘自身日志写在 `tray.log`
+
+## 菜单
+
+| 操作 | 行为 |
+|---|---|
+| 左键单击图标 | 用默认浏览器打开 `http://127.0.0.1:30141` |
+| 状态 | `运行中 / 启动中 / 运行中(外部) / 已停止 / 更新失败` |
+| 打开网页 / 复制地址 | 打开或复制访问地址 |
+| **更新 pi-web** | 执行 `pi-web update`（等价 `npm install -g @agegr/pi-web@latest`），完成后自动重启服务 |
+| 重启服务 / 停止服务 | 先 `pi-web stop --port` 优雅关闭，必要时 `taskkill /T /F` 兜底 |
+| 端口 | 快速切换 30141 / 30180 / 30100 / 8000，或打开配置文件自定义；切换后自动重启 |
+| 打开日志目录 | `%APPDATA%\PiWebTray\` |
+| 开机自启动 | 在「启动」文件夹写入/删除快捷方式（最小化启动） |
+| 退出 | 关闭托盘并停止它拉起的 pi-web 进程 |
+
+其它行为：
+
+- 全局互斥，重复双击不会启动第二份
+- 启动时若端口已被占用（例如你自己在控制台跑着 pi-web），自动识别为「运行中(外部)」，不重复拉起、也不会误杀你的进程；此时更新会提示需手动重启才生效
+- 服务输出全部重定向到日志，不弹黑框
+- 启动异常写入 `%APPDATA%\PiWebTray\crash.log` 并弹窗提示，不会"双击没反应"
+
+## 前置条件
+
+已全局安装 pi-web：
+
+```bash
+npm install -g @agegr/pi-web@latest
+```
+
+## 使用
+
+1. 下载 `PiWebTray.exe`（或自行编译），放到任意目录，例如 `C:\Tools\PiWebTray\`
+2. 双击运行，右下角出现托盘图标
+3. 需要开机自启：右键图标勾选「开机自启动」
+
+## 配置
+
+可选 `pi-web-tray.ini`（放在 exe 同目录，修改后点「重启服务」生效）：
+
+```ini
+port=30141          # 服务端口
+host=127.0.0.1      # 绑定地址，0.0.0.0 = 局域网可访问
+args=               # 额外的 pi-web 启动参数
+```
+
+## 编译（改了源码才需要）
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1
+```
+
+用 Windows 自带 PowerShell 5.1 的 `csc`（`Add-Type -OutputAssembly`）编译，产物 `PiWebTray.exe` 约 23 KB。
+
+调试开关：
+
+```powershell
+.\PiWebTray.exe --export-icon out.ico   # 导出托盘图标（16/24/32/48 四档）
+.\PiWebTray.exe --selftest               # 自检，结果写 %APPDATA%\PiWebTray\selftest.log
+```
+
+## 实现要点
+
+- 托盘图标由 GDI+ 程序化生成多分辨率 ICO（16/24/32/48），不依赖外部 ico 文件
+- 启动子进程用 `cmd /c call pi-web.cmd --port N --hostname H --no-open >> pi-web.log 2>&1`，`call` 保证 cmd 作为父进程存活，退出时可按进程树精确清理
+- 托盘日志与服务日志分文件，避免 node 长时间持有日志句柄导致托盘写入静默失败
+- `StopService()` 先调 `pi-web stop --port` 优雅关闭，再回退 `taskkill /T /F`
+
+## License
+
+MIT

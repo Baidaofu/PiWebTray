@@ -1,0 +1,10 @@
+*.log
+selftest.log
+crash.log
+*.pdb
+*.user
+__pycache__/
+nul
+.vs/
+obj/
+bin/
