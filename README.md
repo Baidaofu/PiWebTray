@@ -64,7 +64,7 @@ args=               # 额外的 pi-web 启动参数
 powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1
 ```
 
-用 Windows 自带的 .NET Framework 编译器（`%WINDIR%\Microsoft.NET\Framework644.0.30319\csc.exe`）编译，`/target:winexe` + `/win32icon:pi-web-tray.ico`，产物 `PiWebTray.exe` 约 45 KB（图标同时嵌入 PE，资源管理器里也显示 Pi 图标）。
+用 Windows 自带的 .NET Framework 编译器（`%WINDIR%/Microsoft.NET/Framework64/v4.0.30319/csc.exe`）编译，`/target:winexe` + `/win32icon:pi-web-tray.ico`，产物 `PiWebTray.exe` 约 45 KB（图标同时嵌入 PE，资源管理器里也显示 Pi 图标）。
 
 托盘运行时的图标由 GDI+ 现场生成（16/24/32/48 四档）；`--export-icon` 导出的 `pi-web-tray.ico` 就是同一份数据，用于编译期嵌入。
 
