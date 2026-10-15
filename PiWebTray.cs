@@ -59,6 +59,34 @@ static class PiWebTray
             return;
         }
 
+        // 调试用：PiWebTray.exe --selftest-service（在独立端口跑一遍 启动→重启→停止）
+        if (args != null && args.Length == 2 && args[0] == "--selftest-service")
+        {
+            string d2 = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), AppName);
+            Directory.CreateDirectory(d2);
+            string f2 = Path.Combine(d2, "selftest.log");
+            ExePath = Application.ExecutablePath;
+            LogDir = d2; LogFile = Path.Combine(d2, "selftest.log"); CfgFile = Path.Combine(AppDir(), "pi-web-tray.ini");
+            Port = int.Parse(args[1]);
+            File.WriteAllText(f2, "selftest port=" + Port + " " + DateTime.Now.ToString("HH:mm:ss") + Environment.NewLine);
+            StartService();
+            File.AppendAllText(f2, "after start: portOpen=" + PortOpen() + " external=" + External + Environment.NewLine);
+
+            // 场景A：外部实例（非本进程拉起）→ 重启 / 停止是否照样生效
+            Process orphan = Proc;
+            Proc = null;                      // 装作不是自己拉起的
+            External = true;
+            File.AppendAllText(f2, "-- external branch (orphan pid=" + (orphan == null ? -1 : orphan.Id) + ") --" + Environment.NewLine);
+            RestartService();
+            File.AppendAllText(f2, "after external restart: portOpen=" + PortOpen() + " external=" + External + Environment.NewLine);
+
+            Proc = null;
+            External = true;
+            StopOnly();
+            File.AppendAllText(f2, "after external stop: portOpen=" + PortOpen() + Environment.NewLine);
+            return;
+        }
+
         // 调试用：PiWebTray.exe --selftest
         if (args != null && args.Length == 1 && args[0] == "--selftest")
         {
@@ -104,6 +132,15 @@ static class PiWebTray
             LogFile = Path.Combine(LogDir, "tray.log");
             CfgFile = Path.Combine(AppDir(), "pi-web-tray.ini");
             Directory.CreateDirectory(LogDir);
+            AppDomain.CurrentDomain.UnhandledException += delegate(object sender, UnhandledExceptionEventArgs e)
+            {
+                Crash(e.ExceptionObject as Exception ?? new Exception("unknown"));
+            };
+            Application.ThreadException += delegate(object sender, ThreadExceptionEventArgs e)
+            {
+                Crash(e.Exception);
+            };
+            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
             LoadConfig();
 
             BuildTray();
@@ -193,8 +230,8 @@ static class PiWebTray
         menu.Items.Add(MiCopy);
         menu.Items.Add(new ToolStripSeparator());
         MiUpdate = new ToolStripMenuItem("更新 pi-web", null, delegate { Guard(UpdateService); });
-        MiRestart = new ToolStripMenuItem("重启服务", null, delegate { Guard(RestartService); });
-        MiStop = new ToolStripMenuItem("停止服务", null, delegate { Guard(StopOnly); });
+        MiRestart = new ToolStripMenuItem("重启服务（含外部实例）", null, delegate { Guard(RestartService); });
+        MiStop = new ToolStripMenuItem("停止服务（含外部实例）", null, delegate { Guard(StopOnly); });
         MiLog = new ToolStripMenuItem("打开日志目录", null, delegate { OpenLogDir(); });
         MiPort = new ToolStripMenuItem("端口");
         MiPort.DropDownItems.Add(new ToolStripMenuItem("30141", null, delegate { Guard(delegate { SetPort(30141); }); }));
@@ -239,12 +276,17 @@ static class PiWebTray
             if (Ni == null) return;
             MiStatus.Text = "状态：" + status;
             MiUpdate.Enabled = !Busy;
-            MiRestart.Enabled = !Busy && running && !External;
-            MiStop.Enabled = !Busy && running && !External;
+            MiRestart.Enabled = !Busy && running;
+            MiStop.Enabled = !Busy && running;
             MiOpen.Enabled = running;
             MiCopy.Enabled = running;
         }
         catch { }
+    }
+
+    static void SetTip(string text)
+    {
+        try { if (Ni != null) Ni.Text = text; } catch { }
     }
 
     static void Balloon(string title, string text, ToolTipIcon icon)
@@ -409,6 +451,12 @@ static class PiWebTray
     // ---------------- 服务控制 ----------------
     static void StartService()
     {
+        try { StartServiceCore(); }
+        catch (Exception e) { Write("StartService error: " + e); Crash(e); }
+    }
+
+    static void StartServiceCore()
+    {
         External = false;
         if (Proc != null && !Proc.HasExited) { WaitPort(30); return; }
         Busy = true;
@@ -424,21 +472,23 @@ static class PiWebTray
                 Busy = false;
                 External = true;
                 SetMenuState("运行中(外部)", true);
-                Ni.Text = AppName + " - 运行中(外部) :" + Port;
+                SetTip(AppName + " - 运行中(外部) :" + Port);
             }
             else
             {
                 Write("port " + Port + " occupied by another program");
                 Busy = false;
                 SetMenuState("端口被占用", false);
-                Ni.Text = AppName + " - 端口 " + Port + " 被占用";
+                SetTip(AppName + " - 端口 " + Port + " 被占用");
                 Balloon(AppName, "端口 " + Port + " 被其它程序占用，pi-web 未启动。右键→端口 可换一个端口", ToolTipIcon.Warning);
             }
             return;
         }
         try
         {
-            string cmd = "call \"" + PiWebCmd() + "\" --port " + Port + " --hostname " + BindHost + " --no-open " + ExtraArgs + " >> \"" + ServerLog() + "\" 2>&1";
+            string log = ServerLog();
+            Write("server log: " + log);
+            string cmd = "call \"" + PiWebCmd() + "\" --port " + Port + " --hostname " + BindHost + " --no-open " + ExtraArgs + " >> \"" + log + "\" 2>&1";
             ProcessStartInfo psi = new ProcessStartInfo("cmd.exe", "/c " + cmd);
             psi.WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             psi.UseShellExecute = false;
@@ -456,14 +506,15 @@ static class PiWebTray
         Busy = false;
         if (ok)
         {
+            CleanupServerLogs(5);
             SetMenuState("运行中", true);
-            Ni.Text = AppName + " - 运行中 :" + Port;
+            SetTip(AppName + " - 运行中 :" + Port);
             Balloon(AppName, "pi-web 已启动  " + Url(), ToolTipIcon.Info);
         }
         else
         {
             SetMenuState("未响应", false);
-            Ni.Text = AppName + " - 未响应";
+            SetTip(AppName + " - 未响应");
             Balloon(AppName, "未检测到端口 " + Port + "，请查看日志", ToolTipIcon.Warning);
         }
     }
@@ -474,7 +525,14 @@ static class PiWebTray
         while (DateTime.Now < end && !Quitting)
         {
             if (PortOpen()) return true;
-            if (Proc != null && Proc.HasExited) { Thread.Sleep(1500); return PortOpen(); }
+            if (Proc != null && Proc.HasExited)
+            {
+                int ec = -1;
+                try { ec = Proc.ExitCode; } catch { }
+                Write("[" + DateTime.Now.ToString("HH:mm:ss") + "] child exited early, exit=" + ec);
+                Thread.Sleep(1500);
+                return PortOpen();
+            }
             Thread.Sleep(500);
         }
         return PortOpen();
@@ -493,13 +551,30 @@ static class PiWebTray
         catch { return false; }
     }
 
+    // 菜单「停止服务」：自己拉起的或外部启动的都停
     static void StopOnly()
     {
-        StopService();
+        bool wasExternal = External;
+        StopAny();
         Busy = false;
         SetMenuState("已停止", false);
-        Ni.Text = AppName + " - 已停止";
-        Write("[" + DateTime.Now.ToString("HH:mm:ss") + "] stopped by user");
+        SetTip(AppName + " - 已停止");
+        Write("[" + DateTime.Now.ToString("HH:mm:ss") + "] stopped by user (external=" + wasExternal + ")");
+    }
+
+    // 停止当前在跑的服务，不管它是谁拉起来的
+    static void StopAny()
+    {
+        if (Proc != null && !Proc.HasExited)
+        {
+            StopService();
+            return;
+        }
+        if (External || (PortOpen() && PiWebRunningOnPort()))
+        {
+            StopExternal();
+            External = false;
+        }
     }
 
     static void StopService()
@@ -507,7 +582,7 @@ static class PiWebTray
         // 先用内置的 pi-web stop（优雅关闭），再回退到强杀进程树
         if (Proc != null && !Proc.HasExited)
         {
-            RunHidden("cmd.exe", "/c call \"" + PiWebCmd() + "\" stop --port " + Port + " >> \"" + ServerLog() + "\" 2>&1", 30);
+            RunHidden("cmd.exe", "/c call \"" + PiWebCmd() + "\" stop --port " + Port + " >> \"" + Path.Combine(LogDir, "pi-web-stop.log") + "\" 2>&1", 30);
         }
         Process p;
         lock (Sync) { p = Proc; Proc = null; }
@@ -523,14 +598,32 @@ static class PiWebTray
         for (int i = 0; i < 20 && PortOpen(); i++) Thread.Sleep(500);
     }
 
+    // 菜单「重启服务」：外部实例同样支持，停掉后由托盘接管并重新拉起
     static void RestartService()
     {
-        StopService();
+        try { RestartServiceCore(); }
+        catch (Exception e) { Write("RestartService error: " + e); Crash(e); Busy = false; }
+    }
+
+    static void RestartServiceCore()
+    {
+        bool wasExternal = External;
+        Write("[" + DateTime.Now.ToString("HH:mm:ss") + "] restart requested (external=" + wasExternal + ")");
+        Busy = true;
+        SetMenuState("重启中...", PortOpen());
+        StopAny();
         Thread.Sleep(800);
+        External = false;
         StartService();
     }
 
     static void UpdateService()
+    {
+        try { UpdateServiceCore(); }
+        catch (Exception e) { Write("UpdateService error: " + e); Crash(e); Busy = false; }
+    }
+
+    static void UpdateServiceCore()
     {
         if (Busy) return;
 
@@ -732,7 +825,7 @@ static class PiWebTray
         Write("[" + DateTime.Now.ToString("HH:mm:ss") + "] switch port " + Port + " -> " + port);
         SavePort(port);
         Port = port;
-        Ni.Text = AppName + " - :" + Port;
+        SetTip(AppName + " - :" + Port);
         Balloon(AppName, "端口已改为 " + Port + "，正在重启服务", ToolTipIcon.Info);
         RestartService();
     }
@@ -845,9 +938,27 @@ static class PiWebTray
         catch { }
     }
 
-    // pi-web 自身输出（可能被 node 长时间占用，单独写一个文件）
+    // 每次启动一个独立日志文件：cmd 的 >> 需要独占写句柄，
+    // 若多个 pi-web 实例共用一个日志文件，后启动的会因打不开日志而瞬间退出。
     static string ServerLog()
     {
-        return Path.Combine(LogDir, "pi-web.log");
+        return Path.Combine(LogDir, "pi-web-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".log");
+    }
+
+    // 清理过期的服务日志，只留最近 keepLogs 份
+    static void CleanupServerLogs(int keepLogs)
+    {
+        try
+        {
+            string full = Path.GetFullPath(LogDir) + Path.DirectorySeparatorChar;
+            FileInfo[] files = new DirectoryInfo(LogDir).GetFiles("pi-web-*.log");
+            Array.Sort(files, delegate(FileInfo a, FileInfo b) { return b.CreationTime.CompareTo(a.CreationTime); });
+            for (int i = keepLogs; i < files.Length; i++)
+            {
+                if (Path.GetFullPath(files[i].FullName).StartsWith(full, StringComparison.OrdinalIgnoreCase))
+                    files[i].Delete();
+            }
+        }
+        catch { }
     }
 }
