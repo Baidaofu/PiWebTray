@@ -230,8 +230,8 @@ static class PiWebTray
         menu.Items.Add(MiCopy);
         menu.Items.Add(new ToolStripSeparator());
         MiUpdate = new ToolStripMenuItem("更新 pi-web", null, delegate { Guard(UpdateService); });
-        MiRestart = new ToolStripMenuItem("重启服务（含外部实例）", null, delegate { Guard(RestartService); });
-        MiStop = new ToolStripMenuItem("停止服务（含外部实例）", null, delegate { Guard(StopOnly); });
+        MiRestart = new ToolStripMenuItem("重启服务", null, delegate { Guard(RestartService); });
+        MiStop = new ToolStripMenuItem("停止服务", null, delegate { Guard(StopOnly); });
         MiLog = new ToolStripMenuItem("打开日志目录", null, delegate { OpenLogDir(); });
         MiPort = new ToolStripMenuItem("端口");
         MiPort.DropDownItems.Add(new ToolStripMenuItem("30141", null, delegate { Guard(delegate { SetPort(30141); }); }));

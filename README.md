@@ -18,7 +18,7 @@ Windows 托盘启动器：静默启动 [pi-web](https://github.com/agegr/pi-web)
 | 状态 | `运行中 / 启动中 / 运行中(外部) / 已停止 / 更新失败` |
 | 打开网页 / 复制地址 | 打开或复制访问地址 |
 | **更新 pi-web** | 弹窗确认后停止运行中的实例（外部实例也会先停），执行 `pi-web update`（等价 `npm install -g @agegr/pi-web@latest`），完成后自动重启；失败时气泡里直接给出原因 |
-| 重启服务（含外部实例） / 停止服务（含外部实例） | **外部启动的 pi-web 同样生效**：`pi-web stop --port` 优雅关闭 → 若端口未释放则 netstat 定位真正监听的 PID 后 `taskkill /T /F` 兜底（`pi-web stop` 对 Next.js 子进程无效）；重启后由托盘接管 |
+| 重启服务 / 停止服务 | **外部启动的 pi-web 同样生效**：`pi-web stop --port` 优雅关闭 → 若端口未释放则 netstat 定位真正监听的 PID 后 `taskkill /T /F` 兜底（`pi-web stop` 对 Next.js 子进程无效）；重启后由托盘接管 |
 | 端口 | 快速切换 30141 / 30180 / 30100 / 8000，或打开配置文件自定义；切换后自动重启 |
 | 打开日志目录 | `%APPDATA%\PiWebTray\` |
 | 开机自启动 | 在「启动」文件夹写入/删除快捷方式（最小化启动） |
