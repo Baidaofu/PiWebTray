@@ -1,24 +1,43 @@
-# 用 Windows PowerShell 5.1 自带的 csc 编译，无需安装任何 SDK
+﻿# 编译 PiWebTray.exe
+# 优先使用系统自带 csc（可嵌入 Win32 图标资源）；没有则退回 Add-Type（图标需在托盘内生成，Explorer 显示通用图标）
 $ErrorActionPreference = 'Stop'
 $dir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$src = Join-Path $dir 'PiWebTray.cs'
-$out = Join-Path $dir 'PiWebTray.exe'
+Push-Location $dir
+try {
+    $src = 'PiWebTray.cs'
+    $out = 'PiWebTray.exe'
+    $ico = 'pi-web-tray.ico'
+    $refs = 'System.dll', 'System.Core.dll', 'System.Drawing.dll', 'System.Windows.Forms.dll'
 
-if (Test-Path $out) { Remove-Item $out -Force }
+    if (Test-Path $out) { Remove-Item $out -Force }
 
-$refs = @(
-    'System.dll',
-    'System.Core.dll',
-    'System.Drawing.dll',
-    'System.Windows.Forms.dll'
-)
+    $csc = @(
+        "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe",
+        "$env:WINDIR\Microsoft.NET\Framework\v4.0.30319\csc.exe"
+    ) | Where-Object { Test-Path $_ } | Select-Object -First 1
 
-$code = [System.IO.File]::ReadAllText($src, [System.Text.Encoding]::UTF8)
+    if (-not $csc) { throw '未找到 csc.exe（.NET Framework 编译器）' }
 
-Add-Type -TypeDefinition $code `
-    -Language CSharp `
-    -ReferencedAssemblies $refs `
-    -OutputAssembly $out `
-    -OutputType WindowsApplication
+    # 缺少 ico 时用旧 exe 现场生成一份
+    if (-not (Test-Path $ico)) {
+        if (Test-Path $out) {
+            & $out --export-icon (Join-Path $dir $ico)
+            Remove-Item $out -Force
+        }
+    }
 
-Write-Host "built -> $out  ($((Get-Item $out).Length) bytes)"
+    $args = @(
+        '/nologo', '/target:winexe', '/optimize+', '/platform:anycpu',
+        '/codepage:65001', '/utf8output',
+        "/out:$out"
+    )
+    if (Test-Path $ico) { $args += "/win32icon:$ico" }
+    $args += "/reference:$($refs -join ',')"
+    $args += $src
+
+    & $csc @args
+    if ($LASTEXITCODE -ne 0) { throw "csc 编译失败 exit=$LASTEXITCODE" }
+
+    Write-Host ("built -> {0}  ({1} bytes, icon={2})" -f $out, (Get-Item $out).Length, (Test-Path $ico))
+}
+finally { Pop-Location }
